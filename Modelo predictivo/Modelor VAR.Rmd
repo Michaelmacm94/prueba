@@ -1,0 +1,143 @@
+---
+title: "Análisis de consumo de gasolina"
+author: "Michael Andres Cifuentes Mirke"
+date: "30/11/2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+library(Factoshiny)
+library(dplyr)
+library(readxl)
+library(vars)
+library(tsDyn)
+library(readr)
+library(urca)
+
+data_modelo <- read_csv("https://raw.githubusercontent.com/jorgehsaavedra/20201124-test-convocatoria/main/02.%20modelacion_datos/data_modelo.csv")
+
+```
+
+## Objetivo y supuestos 
+
+Con el objetivo de pronosticar el consumo de de la gasolina en los siguientes 12 meses para cada una de los 8 tipos de transmilenio observados. Para ello se incluye las variables de Kilometros y número de pasajeros, como variables que causan el consumo de gasolina.
+
+El análisis se realiza por tipo de transmilenio, asumiendo independiencia entre los transmilenios, en una ventana de observación entre enero de 2018 a diciembre de 2020.
+
+
+## Datos
+
+Pas= pasajeros
+Kmt= kilómetros
+Gal= Consumo de gasolina
+Cada tipología es un Transmilenio distinto osea que si son independientes
+
+
+## Análisis de Transmilenio 1 
+
+
+```{r, echo=FALSE}
+serie1<-data_modelo %>% filter(tipologia=="T1") %>% dplyr::select(Pas,KmT, Gal)
+series<-ts(serie1,frequency=12,start=2018)
+plot.ts(series)
+```
+
+Al observar el comportaiento paralelo de las series se observa un compartamiento estrechamente relacionado. Adicionalmente se evidencia que no cuentan con un comportamiento estacionario, por lo cual se realiza la prueba de confirmación de raiz Unitaria.
+
+### Confirmación de raiz unitaria
+
+
+Al realizar las pruebas de raiz unitaria Dickey-Fuller para cada una de las series, evidenciando que las series no son estacionarias, sin embargo al transformalas por medio de la primeria difenrecias, si son estacionarias.
+
+```{r , echo=FALSE}
+Nombres<-c("Pasajeros","kilómetros","Consumo de gasolina")
+for (i  in 1:3) {
+print(Nombres[i])
+df.test=ur.df(series[,i], type=c("drift"),lags=0)
+print(summary(df.test))
+df.test1=ur.df(diff(series[,i]), type=c("drift"),lags=0)
+print(summary(df.test1))
+}
+```
+
+
+### Identificación del Relaciones Cointegrantes
+
+Al observar las relaciones de cointengración, se rechaza la hipotesis nula de cointegración, dado que el estadistico del tes de Johansen, es inferior al valor critico del 10%, (13.52<18.90), por lo cual no es posible estimar un modelo VEC.  En su lugar estimaremos un modelo VAR para el conjunto de variables
+
+```{r , echo=FALSE}
+johansen<-ca.jo(series, type="eigen",spec="transitory",ecdet="none",K=2)
+summary(johansen)
+
+```
+### Estimación del Modelo VAR
+
+```{r , echo=FALSE}
+modelo<-VAR(diff(series),p=1,type=c("const"))
+modelo
+
+```
+
+### Evaluación del Modelo
+
+#### Prueba de Estacionariedad (Condición de Estabilidad de los Estimadores)
+
+Al observar las raices estacionarios del modelo, comprobamos que se encuentran dentro del circulo unitario 
+
+```{r , echo=FALSE}
+roots(modelo)
+
+```
+
+
+#### Analisis de Autocorrelacion en los Residuales
+
+Los gráficos muestran claramente la no presencia de correlación serial en los residuos.
+
+```{r , echo=FALSE}
+
+acf(residuals(modelo)[,1])
+```
+
+
+
+#### Prueba de Causalidad Granger
+
+A través de la prueba de causalidad de granger, se evidencia que las variables de Pasajeros como de Kilometros Causan en el sentido de granger a la gasolina.
+
+```{r , echo=FALSE}
+grangertest(diff(Gal) ~ diff(Pas),order=1,data=serie1)
+grangertest(diff(Gal) ~ diff(KmT),order=1,data=serie1)
+```
+
+
+### Pronostico
+
+```{r , echo=FALSE}
+
+mod_var <- lineVar(series, lag=1)
+pred_VAR <- predict(mod_var,n.ahead=13)
+plot.ts(pred_VAR[3])
+pred_VAR[,3]
+```
+
+# Pronosticos globales
+
+```{r , echo=FALSE}
+tipos=data_modelo$tipologia %>% unique()
+pronosticos<-matrix(NA,13,8)
+for (i in 1:8) {
+serie1<-data_modelo %>% filter(tipologia==tipos[i]) %>% dplyr::select(Pas,KmT, Gal)
+series<-ts(serie1,frequency=12,start=2018)
+mod_var <- lineVar(series, lag=1)
+pred_VAR <- predict(mod_var,n.ahead=13)
+pronosticos[,i]<-pred_VAR[,3]
+}
+colnames(pronosticos)<-tipos
+pronosticos
+
+```
+
+
+
+
